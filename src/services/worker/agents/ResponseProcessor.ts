@@ -11,6 +11,7 @@
  * This module extracts 150+ lines of duplicate code from SDKAgent, GeminiAgent, and OpenRouterAgent.
  */
 
+import { randomUUID } from 'crypto';
 import { logger } from '../../../utils/logger.js';
 import { parseObservations, parseSummary, type ParsedObservation, type ParsedSummary } from '../../../sdk/parser.js';
 import { updateCursorContextForProject } from '../../integrations/CursorHooksInstaller.js';
@@ -69,9 +70,20 @@ export async function processAgentResponse(
   // Get session store for atomic transaction
   const sessionStore = dbManager.getSessionStore();
 
-  // CRITICAL: Must use memorySessionId (not contentSessionId) for FK constraint
+  // GUARD: Generate memorySessionId for non-SDK agents (Gemini, OpenRouter)
   if (!session.memorySessionId) {
-    throw new Error('Cannot store observations: memorySessionId not yet captured');
+    session.memorySessionId = `mem-${randomUUID()}`;
+    logger.info('DB', `Generated memorySessionId | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId}`);
+  }
+
+  // GUARD: Ensure memorySessionId is registered in database (prevents FK constraint failure)
+  const wasNewlyRegistered = sessionStore.ensureMemorySessionIdRegistered(
+    session.sessionDbId,
+    session.memorySessionId
+  );
+
+  if (wasNewlyRegistered) {
+    logger.info('DB', `MEMORY_ID_REGISTERED | sessionDbId=${session.sessionDbId} | memorySessionId=${session.memorySessionId}`);
   }
 
   // Log pre-storage with session ID chain for verification

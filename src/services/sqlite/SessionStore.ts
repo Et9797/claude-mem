@@ -658,6 +658,40 @@ export class SessionStore {
   }
 
   /**
+   * Ensure memory_session_id is registered in sdk_sessions before storing observations.
+   * IDEMPOTENT: Safe to call multiple times. No-op if already registered.
+   */
+  ensureMemorySessionIdRegistered(sessionDbId: number, memorySessionId: string): boolean {
+    // Check if already registered
+    const existing = this.db.prepare(`
+      SELECT id FROM sdk_sessions WHERE memory_session_id = ?
+    `).get(memorySessionId);
+
+    if (existing) return false; // Already registered
+
+    // Check session exists
+    const session = this.db.prepare(`
+      SELECT id, memory_session_id FROM sdk_sessions WHERE id = ?
+    `).get(sessionDbId) as { id: number; memory_session_id: string | null } | undefined;
+
+    if (!session) {
+      throw new Error(`Cannot register memory_session_id: session ${sessionDbId} does not exist`);
+    }
+
+    // Prevent overwriting different ID
+    if (session.memory_session_id && session.memory_session_id !== memorySessionId) {
+      throw new Error(`Session ${sessionDbId} already has different memory_session_id`);
+    }
+
+    // Register the ID
+    this.db.prepare(`UPDATE sdk_sessions SET memory_session_id = ? WHERE id = ?`)
+      .run(memorySessionId, sessionDbId);
+
+    logger.debug('DB', `Registered memory_session_id=${memorySessionId} for session ${sessionDbId}`);
+    return true;
+  }
+
+  /**
    * Get recent session summaries for a project
    */
   getRecentSummaries(project: string, limit: number = 10): Array<{

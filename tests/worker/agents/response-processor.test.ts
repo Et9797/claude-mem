@@ -72,6 +72,7 @@ describe('ResponseProcessor', () => {
     mockDbManager = {
       getSessionStore: () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       }),
       getChromaSync: () => ({
         syncObservation: mockChromaSyncObservation,
@@ -269,6 +270,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -367,6 +369,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -446,6 +449,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -477,6 +481,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -519,6 +524,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -555,6 +561,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -595,6 +602,7 @@ describe('ResponseProcessor', () => {
       }));
       (mockDbManager.getSessionStore as any) = () => ({
         storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => false),
       });
 
       await processAgentResponse(
@@ -614,25 +622,51 @@ describe('ResponseProcessor', () => {
     });
   });
 
-  describe('error handling', () => {
-    it('should throw error if memorySessionId is missing', async () => {
+  describe('memorySessionId generation', () => {
+    it('should generate memorySessionId if missing (for non-SDK agents)', async () => {
       const session = createMockSession({
         memorySessionId: null, // Missing memory session ID
       });
-      const responseText = '<observation><type>discovery</type></observation>';
+      const responseText = `
+        <observation>
+          <type>discovery</type>
+          <title>Test</title>
+          <facts></facts>
+          <concepts></concepts>
+          <files_read></files_read>
+          <files_modified></files_modified>
+        </observation>
+      `;
 
-      await expect(
-        processAgentResponse(
-          responseText,
-          session,
-          mockDbManager,
-          mockSessionManager,
-          mockWorker,
-          100,
-          null,
-          'TestAgent'
-        )
-      ).rejects.toThrow('Cannot store observations: memorySessionId not yet captured');
+      mockStoreObservations = mock(() => ({
+        observationIds: [1],
+        summaryId: null,
+        createdAtEpoch: 1700000000000,
+      }));
+      (mockDbManager.getSessionStore as any) = () => ({
+        storeObservations: mockStoreObservations,
+        ensureMemorySessionIdRegistered: mock(() => true), // Returns true for newly registered
+      });
+
+      await processAgentResponse(
+        responseText,
+        session,
+        mockDbManager,
+        mockSessionManager,
+        mockWorker,
+        100,
+        null,
+        'TestAgent'
+      );
+
+      // Should have generated a memorySessionId
+      expect(session.memorySessionId).not.toBeNull();
+      expect(session.memorySessionId).toMatch(/^mem-[0-9a-f-]+$/);
+
+      // Should have called storeObservations with the generated ID
+      expect(mockStoreObservations).toHaveBeenCalledTimes(1);
+      const [memorySessionId] = mockStoreObservations.mock.calls[0];
+      expect(memorySessionId).toBe(session.memorySessionId);
     });
   });
 });
